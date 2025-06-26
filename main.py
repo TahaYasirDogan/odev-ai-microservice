@@ -111,14 +111,25 @@ async def process_pdf(
                 "upload_timestamp": int(datetime.now().timestamp())
             }
             
-            # 🎯 Mode kontrolü: Sadece 'chat' modunda Pinecone'a yükle
-            if mode == "chat":
-                logger.info(f"🚀 Chat mode: Uploading {len(chunks)} chunks to Pinecone...")
-                try:
-                    upload_result = await pinecone_service.upload_chunks(chunks, metadata)
+            # 🎯 Her iki modda da Pinecone'a yükle (course mode için chunk'ları da return et)
+            logger.info(f"🚀 {mode.capitalize()} mode: Uploading {len(chunks)} chunks to Pinecone...")
+            try:
+                upload_result = await pinecone_service.upload_chunks(chunks, metadata)
+                
+                if upload_result.success:
+                    logger.info(f"✅ Successfully uploaded {upload_result.uploaded_count} chunks to Pinecone!")
                     
-                    if upload_result.success:
-                        logger.info(f"✅ Successfully uploaded {upload_result.uploaded_count} chunks to Pinecone!")
+                    # Mode'a göre farklı response return et
+                    if mode == "course":
+                        return ProcessResponse(
+                            success=True,
+                            message=f"PDF başarıyla işlendi ve {upload_result.uploaded_count} chunk Pinecone'a yüklendi (course mode)",
+                            processing_id=processing_id,
+                            session_id=session_id,
+                            extracted_text_length=len(text_content),
+                            chunks=chunks  # Course modunda chunk'ları da return et
+                        )
+                    else:  # chat mode
                         return ProcessResponse(
                             success=True,
                             message=f"PDF başarıyla işlendi ve {upload_result.uploaded_count} chunk Pinecone'a yüklendi",
@@ -126,13 +137,23 @@ async def process_pdf(
                             session_id=session_id,
                             extracted_text_length=len(text_content)
                         )
-                    else:
-                        # Partial success - some chunks uploaded
-                        if upload_result.uploaded_count > 0:
-                            success_rate = (upload_result.uploaded_count / len(chunks)) * 100
-                            logger.warning(f"⚠️ Partial upload: {upload_result.uploaded_count}/{len(chunks)} chunks ({success_rate:.1f}%)")
-                            
-                            if success_rate >= 50:  # Accept if at least 50% uploaded
+                else:
+                    # Partial success - some chunks uploaded
+                    if upload_result.uploaded_count > 0:
+                        success_rate = (upload_result.uploaded_count / len(chunks)) * 100
+                        logger.warning(f"⚠️ Partial upload: {upload_result.uploaded_count}/{len(chunks)} chunks ({success_rate:.1f}%)")
+                        
+                        if success_rate >= 50:  # Accept if at least 50% uploaded
+                            if mode == "course":
+                                return ProcessResponse(
+                                    success=True,
+                                    message=f"PDF kısmen işlendi: {upload_result.uploaded_count}/{len(chunks)} chunk yüklendi (%{success_rate:.1f}) (course mode)",
+                                    processing_id=processing_id,
+                                    session_id=session_id,
+                                    extracted_text_length=len(text_content),
+                                    chunks=chunks  # Course modunda chunk'ları da return et
+                                )
+                            else:  # chat mode
                                 return ProcessResponse(
                                     success=True,
                                     message=f"PDF kısmen işlendi: {upload_result.uploaded_count}/{len(chunks)} chunk yüklendi (%{success_rate:.1f})",
@@ -140,30 +161,19 @@ async def process_pdf(
                                     session_id=session_id,
                                     extracted_text_length=len(text_content)
                                 )
-                        
-                        # Complete failure or too few chunks uploaded
-                        logger.error(f"❌ Pinecone upload failed: {upload_result.failed_count}/{len(chunks)} chunks failed")
-                        raise HTTPException(
-                            status_code=500, 
-                            detail=f"PDF işlendi ama Pinecone'a yüklenemedi. {upload_result.uploaded_count}/{len(chunks)} chunk başarılı oldu."
-                        )
-                        
-                except Exception as upload_error:
-                    logger.error(f"❌ Upload error: {str(upload_error)}")
+                    
+                    # Complete failure or too few chunks uploaded
+                    logger.error(f"❌ Pinecone upload failed: {upload_result.failed_count}/{len(chunks)} chunks failed")
                     raise HTTPException(
                         status_code=500, 
-                        detail=f"Pinecone yükleme hatası: {str(upload_error)}"
+                        detail=f"PDF işlendi ama Pinecone'a yüklenemedi. {upload_result.uploaded_count}/{len(chunks)} chunk başarılı oldu."
                     )
-            else:
-                # 🎯 Course modu: Pinecone'a yükleme, sadece chunk'ları return et
-                logger.info(f"📚 Course mode: Returning {len(chunks)} chunks directly (no Pinecone upload)")
-                return ProcessResponse(
-                    success=True,
-                    message=f"PDF başarıyla işlendi: {len(chunks)} chunk hazırlandı (course mode)",
-                    processing_id=processing_id,
-                    session_id=session_id,
-                    extracted_text_length=len(text_content),
-                    chunks=chunks  # Course modunda chunk'ları direkt return et
+                    
+            except Exception as upload_error:
+                logger.error(f"❌ Upload error: {str(upload_error)}")
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Pinecone yükleme hatası: {str(upload_error)}"
                 )
             
         finally:
