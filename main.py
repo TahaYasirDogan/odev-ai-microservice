@@ -5,6 +5,7 @@ import tempfile
 import logging
 from typing import Optional
 import uuid
+from datetime import datetime
 from dotenv import load_dotenv
 
 from services.pdf_processor import PDFProcessor
@@ -71,10 +72,11 @@ async def process_pdf(
         # Reset file pointer
         await file.seek(0)
         
-        # Generate unique processing ID
+        # Generate unique processing ID and session ID
         processing_id = str(uuid.uuid4())
+        session_id = f"session_{int(datetime.now().timestamp())}_{str(uuid.uuid4())[:8]}"
         
-        logger.info(f"🚀 Processing PDF: {file.filename} for user: {user_id} (mode: {mode})")
+        logger.info(f"🚀 Processing PDF: {file.filename} for user: {user_id} (mode: {mode}, session: {session_id})")
         
         # Create temporary file
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
@@ -104,7 +106,9 @@ async def process_pdf(
                 "subject": str(subject) if subject else "user_content",
                 "topic": str(topic),
                 "filename": str(file.filename),
-                "processing_id": processing_id
+                "processing_id": processing_id,
+                "session_id": session_id,  # 🆔 SessionId eklendi - her PDF upload unique session
+                "upload_timestamp": int(datetime.now().timestamp())
             }
             
             # 🎯 Mode kontrolü: Sadece 'chat' modunda Pinecone'a yükle
@@ -119,6 +123,7 @@ async def process_pdf(
                             success=True,
                             message=f"PDF başarıyla işlendi ve {upload_result.uploaded_count} chunk Pinecone'a yüklendi",
                             processing_id=processing_id,
+                            session_id=session_id,
                             extracted_text_length=len(text_content)
                         )
                     else:
@@ -132,6 +137,7 @@ async def process_pdf(
                                     success=True,
                                     message=f"PDF kısmen işlendi: {upload_result.uploaded_count}/{len(chunks)} chunk yüklendi (%{success_rate:.1f})",
                                     processing_id=processing_id,
+                                    session_id=session_id,
                                     extracted_text_length=len(text_content)
                                 )
                         
@@ -155,6 +161,7 @@ async def process_pdf(
                     success=True,
                     message=f"PDF başarıyla işlendi: {len(chunks)} chunk hazırlandı (course mode)",
                     processing_id=processing_id,
+                    session_id=session_id,
                     extracted_text_length=len(text_content),
                     chunks=chunks  # Course modunda chunk'ları direkt return et
                 )

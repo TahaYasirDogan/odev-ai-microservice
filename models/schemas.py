@@ -5,6 +5,7 @@ class ProcessResponse(BaseModel):
     success: bool
     message: str
     processing_id: str
+    session_id: str  # 🆔 SessionId added for unique session tracking
     extracted_text_length: int
     chunks: Optional[List[str]] = None  # Course modunda chunk'ları direkt return et
 
